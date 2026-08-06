@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import ssl
+from inspect import Parameter, signature
 from time import time
 from threading import Lock
 from voluptuous import Optional
@@ -241,6 +242,30 @@ class MikrotikAPI:
     # ---------------------------
     def _login_kwargs(self) -> dict:
         """Build login kwargs compatible with librouteros 3.x and 4.x."""
+        try:
+            parameters = signature(librouteros.connect).parameters
+            if "login_method" in parameters:
+                return {"login_method": self._login_callable()}
+            if "login_methods" in parameters:
+                return {
+                    "login_methods": (
+                        self._login_method
+                        if isinstance(self._login_method, str)
+                        else self._login_callable()
+                    )
+                }
+
+            # Wrapped implementations may only expose **kwargs. Newer
+            # librouteros releases use the singular login_method argument.
+            if any(
+                parameter.kind == Parameter.VAR_KEYWORD
+                for parameter in parameters.values()
+            ):
+                return {"login_method": self._login_callable()}
+        except (TypeError, ValueError):
+            # Some wrapped callables do not expose an inspectable signature.
+            pass
+
         major = self._librouteros_major()
         # Prefer callables on 4.x / unknown; keep legacy string/value on 3.x.
         if major is None or major >= 4:
